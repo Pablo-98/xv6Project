@@ -5,7 +5,7 @@
 
 
 void Uptime() {
- printf("uptime: %d ", uptime() );
+ printf("up %d clock ticks", uptime() );
  exit(0);
 }
 
