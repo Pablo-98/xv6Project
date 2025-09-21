@@ -4,8 +4,8 @@
 
 
 
-void myUptime() {
- fprint("uptime: %d ", uptime() );
+void Uptime() {
+ printf("uptime: %d ", uptime() );
  exit(0);
 }
 
