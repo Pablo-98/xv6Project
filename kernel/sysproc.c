@@ -95,3 +95,26 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_wait2(void){
+
+  uint64 addr_wtime, addr_rtime;
+
+  int wtime, rtime;
+
+  if (argaddr(0, &addr_wtime) < 0 || argaddr(1, &addr_rtime) < 0 )
+    return -1;
+ 
+  int pid = wait2(&wtime, &rtime);
+
+  if(pid >= 0){
+    if (copyout(myproc()->pagetable, addr_wtime, (char *)&wtime, sizeof(int)) < 0)
+      return -1;
+      
+    if (copyout(myproc()->pagetable, addr_rtime, (char *)&rtime, sizeof(int)) < 0)
+      return -1;
+    
+  }
+  return pid;
+}

@@ -120,6 +120,12 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
+
+  p->ctime = ticks; //process creation time 
+  p->rtime = 0;
+  p->etime = 0;
+
+  
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
@@ -357,6 +363,9 @@ exit(int status)
   iput(p->cwd);
   end_op();
   p->cwd = 0;
+
+  //mine
+  p->etime = ticks; //process end time
 
   acquire(&wait_lock);
 
@@ -652,5 +661,44 @@ procdump(void)
       state = "???";
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
+  }
+}
+
+
+
+int
+wait2(int *wtime, int *rtime)
+{
+  struct proc *p;
+  int havekids;
+  int pid;
+  struct proc *np = myproc();
+  //infinite loop until one of children finish 
+  for(;;){
+    havekids = 0;
+    for(p = proc; p < &proc[NPROC]; p++){
+      
+      if(p->parent == np){
+
+        acquire(&p->lock);
+        havekids = 1;
+        if(p->state == ZOMBIE){
+          pid = p->pid;
+          *rtime = p->rtime;
+          *wtime = p->etime - p->ctime - p->rtime;
+          
+          freeproc(p);
+          release(&p->lock);
+          return pid;
+        }
+        release(&p->lock);
+      }
+    }
+    
+    if(!havekids || np->killed){
+      return -1;
+    }
+    
+    sleep(np, &np->lock);
   }
 }

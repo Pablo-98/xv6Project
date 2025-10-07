@@ -104,5 +104,14 @@ struct proc {
   struct context context;      // swtch() here to run process
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
-  char name[16];               // Process name (debugging)
+  char name[16]; 
+  uint cputime;             
+
+
+  // a creation time , an end time and a total run time 
+int ctime; 
+int etime; 
+int rtime; 
+
+
 };
