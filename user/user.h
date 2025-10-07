@@ -1,5 +1,6 @@
 struct stat;
 struct rtcdate;
+struct rusage;
 
 // system calls
 int fork(void);
@@ -23,7 +24,7 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
-int wait2(int*, int*, int*); // return wtime and rtime of child process
+int wait2(int* status, struct rusage *ru ); 
 
 // ulib.c
 int stat(const char*, struct stat*);

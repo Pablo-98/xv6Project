@@ -98,23 +98,14 @@ sys_uptime(void)
 
 uint64
 sys_wait2(void){
+  uint64 ustatus;
+  uint64 urusage;
 
-  uint64 addr_wtime, addr_rtime;
+  if (argaddr(0, &ustatus) < 0) return -1;
+  if (argaddr(1, &urusage) < 0) return -1;
 
-  int wtime, rtime;
-
-  if (argaddr(0, &addr_wtime) < 0 || argaddr(1, &addr_rtime) < 0 )
-    return -1;
- 
-  int pid = wait2(&wtime, &rtime);
-
-  if(pid >= 0){
-    if (copyout(myproc()->pagetable, addr_wtime, (char *)&wtime, sizeof(int)) < 0)
-      return -1;
-      
-    if (copyout(myproc()->pagetable, addr_rtime, (char *)&rtime, sizeof(int)) < 0)
-      return -1;
+  return wait2(ustatus,urusage);   
     
-  }
-  return pid;
+
+
 }

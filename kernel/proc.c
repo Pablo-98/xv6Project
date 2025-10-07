@@ -120,11 +120,6 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
-
-  p->ctime = ticks; //process creation time 
-  p->rtime = 0;
-  p->etime = 0;
-
   
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -146,8 +141,9 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+  p->cputime = 0;
 
-  return p;
+    return p; 
 }
 
 // free a proc structure and the data hanging from it,
@@ -365,7 +361,7 @@ exit(int status)
   p->cwd = 0;
 
   //mine
-  p->etime = ticks; //process end time
+ // p->etime = ticks; //process end time
 
   acquire(&wait_lock);
 
@@ -435,6 +431,74 @@ wait(uint64 addr)
     sleep(p, &wait_lock);  //DOC: wait-sleep
   }
 }
+
+//***** */ Define rusage struct for wait2
+struct rusage {
+  uint64 cputime;
+};
+
+int
+wait2(uint64 ustatus, uint64 urusage)
+{
+  struct proc *p = myproc();
+  int havekids, pid;
+
+  acquire(&wait_lock);
+  for(;;){
+    havekids = 0;
+    for(struct proc *pp = proc; pp < &proc[NPROC]; pp++){
+      if(pp->parent == p){
+        havekids = 1;
+
+        acquire(&pp->lock);
+
+        if(pp->state == ZOMBIE){
+          // child DONE
+          pid = pp->pid;
+
+          // write exit status 
+          if(ustatus != 0){
+            if(copyout(p->pagetable, ustatus, (char *)&pp->xstate, sizeof(pp->xstate)) < 0){
+              release(&pp->lock);
+              release(&wait_lock);
+              return -1;
+            }
+          }
+
+          // write child's rusage (cputime)
+          if(urusage != 0){
+            struct rusage ru;
+            ru.cputime = pp->cputime;
+            if(copyout(p->pagetable, urusage, (char *)&ru, sizeof(ru)) < 0){
+              release(&pp->lock);
+              release(&wait_lock);
+              return -1;
+            }
+          }
+
+          // free child and return pid (same as wait)
+          freeproc(pp);
+          release(&pp->lock);
+          release(&wait_lock);
+          return pid;
+        }
+        release(&pp->lock);
+      }
+    }
+
+    if(!havekids || p->killed){
+      
+      release(&wait_lock);
+
+      return -1;
+    }
+
+    // sleep until a child changes state
+    sleep(p, &wait_lock);
+  }
+}
+
+
 
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
@@ -655,8 +719,8 @@ procdump(void)
   for(p = proc; p < &proc[NPROC]; p++){
     if(p->state == UNUSED)
       continue;
-    if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
-      state = states[p->state];
+    if(p->state >= 0 && p->state < NELEM(states) && states[p->state]) 
+      state = states[p->state]; 
     else
       state = "???";
     printf("%d %s %s", p->pid, state, p->name);
@@ -665,40 +729,4 @@ procdump(void)
 }
 
 
-
-int
-wait2(int *wtime, int *rtime)
-{
-  struct proc *p;
-  int havekids;
-  int pid;
-  struct proc *np = myproc();
-  //infinite loop until one of children finish 
-  for(;;){
-    havekids = 0;
-    for(p = proc; p < &proc[NPROC]; p++){
-      
-      if(p->parent == np){
-
-        acquire(&p->lock);
-        havekids = 1;
-        if(p->state == ZOMBIE){
-          pid = p->pid;
-          *rtime = p->rtime;
-          *wtime = p->etime - p->ctime - p->rtime;
-          
-          freeproc(p);
-          release(&p->lock);
-          return pid;
-        }
-        release(&p->lock);
-      }
-    }
-    
-    if(!havekids || np->killed){
-      return -1;
-    }
-    
-    sleep(np, &np->lock);
-  }
-}
+//wait2 for homework 2

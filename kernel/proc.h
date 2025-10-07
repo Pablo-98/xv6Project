@@ -108,10 +108,7 @@ struct proc {
   uint cputime;             
 
 
-  // a creation time , an end time and a total run time 
-int ctime; 
-int etime; 
-int rtime; 
+ 
 
 
 };

@@ -11,6 +11,7 @@ int main(int argc, char * argv[] )
         exit(0);
     }
 
+    int start = uptime();
     int pid = fork();
     
     if (pid < 0){
@@ -23,12 +24,13 @@ int main(int argc, char * argv[] )
         exit(0);
     }
 
-    else{
-        int wtime, rtime;
-        wait2(0, &wtime, &rtime);
+    wait(0); 
 
-        printf("wait time %d, run time %d\n", wtime, rtime);
-    }
+    int end = uptime();
+    int elapsed = end - start;
+
+    printf("elapsed time %d ticks\n", elapsed);
+    exit(0);
 
 
 

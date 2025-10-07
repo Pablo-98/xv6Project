@@ -182,7 +182,10 @@ void            virtio_disk_init(void);
 void            virtio_disk_rw(struct buf *, int);
 void            virtio_disk_intr(void);
 
+
+int wait2(uint64 status, uint64 urusage);
+
+
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
 
-int wait2(int*, int*); // return wait time and run time of child process
