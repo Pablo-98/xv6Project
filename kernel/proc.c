@@ -476,7 +476,7 @@ void scheduler(void) {
     } else {  // Round-robin time,
       struct proc *p;  
       for(p = proc; p < &proc[NPROC]; p++) {
-        acquire(&p->lock);  /
+        acquire(&p->lock);  
         if (p->state == RUNNABLE) { 
           p->state = RUNNING;  
           c->proc = p;         // Set this process to the CPU
