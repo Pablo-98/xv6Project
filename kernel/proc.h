@@ -1,3 +1,6 @@
+#ifndef PROC_H
+#define PROC_H
+
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -93,6 +96,9 @@ struct proc {
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
 
+  int priority;               // process priority hw3 
+
+
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
 
@@ -104,5 +110,10 @@ struct proc {
   struct context context;      // swtch() here to run process
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
-  char name[16];               // Process name (debugging)
+  char name[16]; 
 };
+
+
+int getpriority(int pid);  //hw3
+int setpriority(int pid, int priority); //hw3
+#endif

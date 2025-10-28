@@ -2,6 +2,9 @@ struct stat;
 struct rtcdate;
 struct pstat; //hw3 getprocs
 
+
+typedef unsigned int uint;
+
 // system calls
 int fork(void);
 int exit(int) __attribute__((noreturn));
@@ -42,3 +45,7 @@ void free(void*);
 int atoi(const char*);
 int memcmp(const void *, const void *, uint);
 void *memcpy(void *, const void *, uint);
+
+int getpriority(int pid); //hw3
+int setpriority(int pid, int priority); //hw3
+

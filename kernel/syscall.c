@@ -104,7 +104,11 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
+
 extern uint64 sys_getprocs(void); //hw3 getprocs
+
+extern uint64 sys_getpriority(void); //hw3
+extern uint64 sys_setpriority(void); //hw3
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -128,7 +132,12 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+
 [SYS_getprocs]   sys_getprocs, //hw3 getprocs
+
+[SYS_getpriority] sys_getpriority, //hw3 
+[SYS_setpriority]   sys_setpriority, //hw3 
+
 };
 
 void

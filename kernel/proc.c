@@ -120,6 +120,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  p->priority = 0;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -303,8 +304,11 @@ fork(void)
   np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
+  np->name[sizeof(np->name) - 1] = '\0';  // Explicit null termination
 
   pid = np->pid;
+
+  np-> priority = p->priority;
 
   release(&np->lock);
 
@@ -430,38 +434,63 @@ wait(uint64 addr)
 
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
-// Scheduler never returns.  It loops, doing:
-//  - choose a process to run.
-//  - swtch to start running that process.
-//  - eventually that process transfers control
-//    via swtch back to the scheduler.
-void
-scheduler(void)
-{
-  struct proc *p;
-  struct cpu *c = mycpu();
-  
-  c->proc = 0;
-  for(;;){
-    // Avoid deadlock by ensuring that devices can interrupt.
-    intr_on();
 
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
+void scheduler(void) {
+  struct cpu *c = mycpu();  // current CPU
+  c->proc = 0;              
+  for(;;) {               
+    intr_on();  // Turn on interrupts
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
+    if (SCHED_POLICY == SCHED_PRIORITY) {
+      // Priority scheduling, oh boy
+      struct proc *p;           // Pointer for looping through processes
+      struct proc *best = 0;    // Best process, we will try to find it
+      int best_priority = -1;
+      for(p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);  // We need to lock it before messing with it
+        if (p->state == RUNNABLE) {  // If this process is runnable
+          if (best == 0 || p->priority > best_priority) { 
+            best = p;  // Found a better one!
+            best_priority = p->priority;
+          }
+        }
+        release(&p->lock);  // Unlock the process after messing with it
       }
-      release(&p->lock);
+
+      // Now let's run the best one if we found it
+      if (best) {
+        acquire(&best->lock);
+        if (best->state != RUNNABLE) {
+          release(&best->lock);
+          continue;  
+        }
+        best->state = RUNNING;  // Make it running, time to go!
+        c->proc = best;         
+
+      
+        swtch(&c->context, &best->context);
+
+        c->proc = 0;            // Clear it after we're done
+        release(&best->lock);   // Unlock it after it's finished
+      }
+    } else {  // Round-robin time,
+      struct proc *p;  
+      for(p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);  /
+        if (p->state == RUNNABLE) { 
+          p->state = RUNNING;  
+          c->proc = p;         // Set this process to the CPU
+
+          release(&p->lock);   // Unlock before switching
+
+          swtch(&c->context, &p->context);  // Do the actual switch
+
+          c->proc = 0;         // No more process on this CPU after that
+        }
+      }
     }
+
+    // If there are no runnable processes, we just loop again
   }
 }
 
@@ -665,15 +694,21 @@ procinfo(uint64 addr)
 {
   struct proc *p;
   struct proc *thisproc = myproc();
-  struct pstat procinfo;
   int nprocs = 0;
+
   for(p = proc; p < &proc[NPROC]; p++){ 
     if(p->state == UNUSED)
       continue;
+
     nprocs++;
+
+    struct pstat procinfo; 
+
     procinfo.pid = p->pid;
     procinfo.state = p->state;
     procinfo.size = p->sz;
+    procinfo.priority = p->priority;
+    
     if (p->parent)
       procinfo.ppid = (p->parent)->pid;
     else
@@ -687,3 +722,35 @@ procinfo(uint64 addr)
   return nprocs;
 }
 
+
+//hw3
+int
+getpriority(int pid)
+{
+    struct proc *p;
+
+    for (p = proc; p < &proc[NPROC]; p++) {
+        if (p->pid == pid) {
+            return p->priority;
+        }
+    }
+    return -1; // not found
+}
+
+
+//hw3
+int
+setpriority(int pid, int priority)
+{
+    if (priority < 0 || priority > 49)
+        return -1; // bad range
+
+    struct proc *p;
+    for (p = proc; p < &proc[NPROC]; p++) {
+        if (p->pid == pid) {
+            p->priority = priority;
+            return 0;
+        }
+    }
+    return -1; // no pid found
+}
