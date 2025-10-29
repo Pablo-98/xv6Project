@@ -98,11 +98,14 @@ struct proc {
 
   int priority;               // process priority hw3 
 
+           // process ready to run time hw3 
+
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
 
   // these are private to the process, so p->lock need not be held.
+  uint readytime;   
   uint64 kstack;               // Virtual address of kernel stack
   uint64 sz;                   // Size of process memory (bytes)
   pagetable_t pagetable;       // User page table

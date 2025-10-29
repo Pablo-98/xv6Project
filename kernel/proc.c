@@ -232,19 +232,20 @@ userinit(void)
   p = allocproc();
   initproc = p;
   
-  // allocate one user page and copy init's instructions
-  // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
-  // prepare for the very first "return" from kernel to user.
-  p->trapframe->epc = 0;      // user program counter
-  p->trapframe->sp = PGSIZE;  // user stack pointer
+  p->trapframe->epc = 0;
+  p->trapframe->sp = PGSIZE;
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
+  // mark it runnable and set readytime ONCE while holding p->lock
   p->state = RUNNABLE;
+  acquire(&tickslock);
+  p->readytime = ticks;
+  release(&tickslock);
 
   release(&p->lock);
 }
@@ -283,6 +284,8 @@ fork(void)
     return -1;
   }
 
+  // Still holding np->lock here from allocproc().
+
   // Copy user memory from parent to child.
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
@@ -301,23 +304,29 @@ fork(void)
   for(i = 0; i < NOFILE; i++)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
+
   np->cwd = idup(p->cwd);
 
-  safestrcpy(np->name, p->name, sizeof(p->name));
-  np->name[sizeof(np->name) - 1] = '\0';  // Explicit null termination
+  safestrcpy(np->name, p->name, sizeof(np->name));
+  np->name[sizeof(np->name) - 1] = '\0';
 
   pid = np->pid;
 
-  np-> priority = p->priority;
+  np->priority = p->priority;
 
-  release(&np->lock);
-
+  // set parent while holding wait_lock,
+  // but we still hold np->lock; that's okay.
   acquire(&wait_lock);
   np->parent = p;
   release(&wait_lock);
 
-  acquire(&np->lock);
+  // now make the child RUNNABLE and timestamp it
   np->state = RUNNABLE;
+  acquire(&tickslock);
+  np->readytime = ticks;
+  release(&tickslock);
+
+  // drop the proc lock last
   release(&np->lock);
 
   return pid;
@@ -435,64 +444,79 @@ wait(uint64 addr)
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 
-void scheduler(void) {
-  struct cpu *c = mycpu();  // current CPU
-  c->proc = 0;              
-  for(;;) {               
-    intr_on();  // Turn on interrupts
+void
+scheduler(void)
+{
+  struct cpu *c = mycpu();
+  c->proc = 0;
+
+  for (;;) {
+    intr_on();
 
     if (SCHED_POLICY == SCHED_PRIORITY) {
-      // Priority scheduling, oh boy
-      struct proc *p;           // Pointer for looping through processes
-      struct proc *best = 0;    // Best process, we will try to find it
-      int best_priority = -1;
-      for(p = proc; p < &proc[NPROC]; p++) {
-        acquire(&p->lock);  // We need to lock it before messing with it
-        if (p->state == RUNNABLE) {  // If this process is runnable
-          if (best == 0 || p->priority > best_priority) { 
-            best = p;  // Found a better one!
-            best_priority = p->priority;
+      struct proc *p, *best = 0;
+      int best_eff = -1;
+      uint now;
+
+      // Get current tick count once for aging math
+      acquire(&tickslock);
+      now = ticks;
+      release(&tickslock);
+
+      // look for the best runnable process
+      for (p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if (p->state == RUNNABLE) {
+          int eff = p->priority + (now - p->readytime) / AGING_DIV;
+          if (eff > MAXEFFPRIORITY)
+            eff = MAXEFFPRIORITY;
+
+          if (eff > best_eff) {
+            if (best) release(&best->lock);
+            best = p;
+            best_eff = eff;
+          } else {
+            release(&p->lock);
           }
+        } else {
+
+
+          release(&p->lock);
         }
-        release(&p->lock);  // Unlock the process after messing with it
       }
 
-      // Now let's run the best one if we found it
+      // Run selected process (if any)
       if (best) {
-        acquire(&best->lock);
-        if (best->state != RUNNABLE) {
-          release(&best->lock);
-          continue;  
-        }
-        best->state = RUNNING;  // Make it running, time to go!
-        c->proc = best;         
-
-      
+        best->state = RUNNING;
+        c->proc = best;
         swtch(&c->context, &best->context);
-
-        c->proc = 0;            // Clear it after we're done
-        release(&best->lock);   // Unlock it after it's finished
+        c->proc = 0;
+        if (holding(&best->lock))
+          release(&best->lock);
       }
-    } else {  // Round-robin time,
-      struct proc *p;  
-      for(p = proc; p < &proc[NPROC]; p++) {
-        acquire(&p->lock);  
-        if (p->state == RUNNABLE) { 
-          p->state = RUNNING;  
-          c->proc = p;         // Set this process to the CPU
 
-          release(&p->lock);   // Unlock before switching
+    } else {
 
-          swtch(&c->context, &p->context);  // Do the actual switch
 
-          c->proc = 0;         // No more process on this CPU after that
+      // Round-robin fallback
+      for (struct proc *p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if (p->state == RUNNABLE) {
+          p->state = RUNNING;
+          c->proc = p;
+          swtch(&c->context, &p->context);
+          c->proc = 0;
+
+          release(&p->lock);
+        } else {
+
+          release(&p->lock);
         }
       }
     }
-
-    // If there are no runnable processes, we just loop again
   }
 }
+
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
@@ -528,6 +552,12 @@ yield(void)
   struct proc *p = myproc();
   acquire(&p->lock);
   p->state = RUNNABLE;
+
+  // Mark when it became ready
+  acquire(&tickslock);
+  p->readytime = ticks;
+  release(&tickslock);
+
   sched();
   release(&p->lock);
 }
@@ -560,28 +590,26 @@ sleep(void *chan, struct spinlock *lk)
 {
   struct proc *p = myproc();
   
-  // Must acquire p->lock in order to
-  // change p->state and then call sched.
-  // Once we hold p->lock, we can be
-  // guaranteed that we won't miss any wakeup
-  // (wakeup locks p->lock),
-  // so it's okay to release lk.
+  // p->lock must be held before we change p->state.
+  acquire(&p->lock);
 
-  acquire(&p->lock);  //DOC: sleeplock1
+  // Now that we hold p->lock, we can release lk.
   release(lk);
 
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
 
+  // Give up the CPU. This will release p->lock inside sched()
+  // and reacquire it before returning.
   sched();
 
-  // Tidy up.
+  // We are back, and we hold p->lock again.
   p->chan = 0;
 
-  // Reacquire original lock.
-  release(&p->lock);
+  // Reacquire the original lock BEFORE dropping p->lock.
   acquire(lk);
+  release(&p->lock);
 }
 
 // Wake up all processes sleeping on chan.
@@ -596,6 +624,17 @@ wakeup(void *chan)
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
+
+        // Set readytime safely.
+        // If the caller (like clock interrupt) already holds tickslock,
+        // don't try to re-acquire it or we'll panic.
+        if (holding(&tickslock)) {
+          p->readytime = ticks;
+        } else {
+          acquire(&tickslock);
+          p->readytime = ticks;
+          release(&tickslock);
+        }
       }
       release(&p->lock);
     }
@@ -617,6 +656,9 @@ kill(int pid)
       if(p->state == SLEEPING){
         // Wake process from sleep().
         p->state = RUNNABLE;
+        acquire(&tickslock);
+        p->readytime = ticks;
+        release(&tickslock);
       }
       release(&p->lock);
       return 0;
@@ -708,6 +750,9 @@ procinfo(uint64 addr)
     procinfo.state = p->state;
     procinfo.size = p->sz;
     procinfo.priority = p->priority;
+
+    procinfo.readytime = p->readytime; //hw3
+
     
     if (p->parent)
       procinfo.ppid = (p->parent)->pid;

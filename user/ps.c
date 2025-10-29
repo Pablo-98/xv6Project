@@ -3,7 +3,8 @@
 #include "kernel/pstat.h"
 #include "user/user.h"
 
-int main(int argc, char **argv)
+int
+main(int argc, char **argv)
 {
     struct pstat uproc[NPROC];
     int nprocs;
@@ -12,19 +13,35 @@ int main(int argc, char **argv)
     static char *states[] = {
         [SLEEPING] "sleeping",
         [RUNNABLE] "runnable",
-        [RUNNING] "running ",
-        [ZOMBIE] "zombie  "};
+        [RUNNING]  "running ",
+        [ZOMBIE]   "zombie  "
+    };
 
     nprocs = getprocs(uproc);
     if (nprocs < 0)
         exit(-1);
-//hw3, added uproc[i].priority
-    printf("pid\tstate\t\tsize\tppid\tname\n");
-    for (i = 0; i < nprocs; i++)
-    {
+
+    uint currticks = uptime();
+
+    printf("pid\tstate\t\tsize\tppid\tpriority\tage\tname\n");
+    for (i = 0; i < nprocs; i++) {
         state = states[uproc[i].state];
-        printf("%d\t%s\t%lu\t%d\t%s\n", uproc[i].pid, state,
-               uproc[i].size, uproc[i].ppid, uproc[i].priority, uproc[i].name); //added uproc[i].priority
+
+        printf("%d\t%s\t%luu\t%d\t%d\t",
+               uproc[i].pid, state,
+               uproc[i].size,
+               uproc[i].ppid,
+               uproc[i].priority);
+
+        // Age columnnnn 
+        if (uproc[i].state == RUNNABLE)
+
+            printf("%d\t", currticks - uproc[i].readytime);
+        else
+        
+            printf("N/A\t");
+
+        printf("%s\n", uproc[i].name);
     }
 
     exit(0);

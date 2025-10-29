@@ -1,31 +1,44 @@
 #include "user/user.h"
+#include "kernel/types.h"
 
-int main(void) {
-    int pid1 = fork();
-    if (pid1 == 0) {
+int
+main(void)
+{
+    int pidA = fork();
+    if (pidA == 0) {
         setpriority(getpid(), 40);
-        printf("Child A (pid %d) with priority 40\n", getpid());
-        while (1);
+        for (;;) {
+            printf("Child A ran (priority = %d, CPU ticks = %d)\n",
+                   getpriority(getpid()), uptime());
+            sleep(1);
+        }
     }
 
-    int pid2 = fork();
-    if (pid2 == 0) {
+    int pidB = fork();
+    if (pidB == 0) {
         setpriority(getpid(), 39);
-        printf("Child B (pid %d) with priority 39\n", getpid());
-        while (1);
+        for (;;) {
+            printf("Child B ran (priority = %d, CPU ticks = %d)\n",
+                   getpriority(getpid()), uptime());
+            sleep(1);
+        }
     }
 
-    int pid3 = fork();
-    if (pid3 == 0) {
+    sleep(5); // delay so B gets some turns before C even exists
+
+    int pidC = fork();
+    if (pidC == 0) {
         setpriority(getpid(), 40);
-        printf("Child C (pid %d) with priority 40\n", getpid());
-        while (1);
+        for (;;) {
+            printf("Child C ran (priority = %d, CPU ticks = %d)\n",
+                   getpriority(getpid()), uptime());
+            sleep(1);
+        }
     }
 
-    sleep(100);
-    kill(pid1);
-    kill(pid2);
-    kill(pid3);
-
+    sleep(100);  // let them run and print
+    kill(pidA);
+    kill(pidB);
+    kill(pidC);
     exit(0);
 }

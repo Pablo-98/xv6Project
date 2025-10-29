@@ -20,7 +20,11 @@ struct pstat {
   uint64 size;              // Size of process memory (bytes)
   int ppid;                 // Parent process ID
   char name[16];            // Process name
+
   int priority;             // Priority (0-49)
+  uint readytime;           // Ready to run time in ticks
+
+
 };
 
 #endif // PSTAT_H
