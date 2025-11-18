@@ -51,7 +51,7 @@ usertrap(void)
   p->trapframe->epc = r_sepc();
   
   if(r_scause() == 8){
-    // system call
+    // System call
 
     if(p->killed)
       exit(-1);
@@ -65,18 +65,52 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
-    // ok
-  } else {
-    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
-    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+  }
+  else if((which_dev = devintr()) != 0){
+    // ok: device interrupt
+  }
+  else if(r_scause() == 13 || r_scause() == 15){
+    // Lazy allocation page fault: load (13) / store (15)
+    
+    uint64 va = r_stval();    // Faulting virtual address
+
+    // If inside the process heap, this is a lazy page fault
+    if(va < p->sz){
+
+      uint64 va0 = PGROUNDDOWN(va);
+
+      char *mem = kalloc();
+      if(mem == 0){
+        printf("lazy alloc: out of memory\n");
+        p->killed = 1;
+      } else {
+        memset(mem, 0, PGSIZE);
+
+        if(mappages(p->pagetable, va0, PGSIZE, (uint64)mem,
+                    PTE_R | PTE_W | PTE_U) != 0){
+          kfree(mem);
+          printf("lazy alloc: mappages failed\n");
+          p->killed = 1;
+        }
+      }
+    } else {
+      // Faulted outside allowed region → kill process
+      printf("lazy alloc: invalid access va=%p sz=%p\n", va, p->sz);
+      p->killed = 1;
+    }
+  }
+  else {
+    printf("usertrap(): unexpected scause %p pid=%d\n",
+      r_scause(), p->pid);
+    printf("            sepc=%p stval=%p\n",
+      r_sepc(), r_stval());
     p->killed = 1;
   }
 
   if(p->killed)
     exit(-1);
 
-  // give up the CPU if this is a timer interrupt.
+  // Give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();
 

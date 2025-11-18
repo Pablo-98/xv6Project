@@ -162,27 +162,29 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 // Remove npages of mappings starting from va. va must be
 // page-aligned. The mappings must exist.
 // Optionally free the physical memory.
+// Remove n pages from the user page table starting at va.
+// If do_free is set, then free physical memory if mapped.
 void
 uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 {
   uint64 a;
   pte_t *pte;
+  uint64 pa;
 
-  if((va % PGSIZE) != 0)
-    panic("uvmunmap: not aligned");
-
-  for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
-    if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
-    if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
-    if(PTE_FLAGS(*pte) == PTE_V)
-      panic("uvmunmap: not a leaf");
-    if(do_free){
-      uint64 pa = PTE2PA(*pte);
-      kfree((void*)pa);
+  for(a = va; a < va + npages * PGSIZE; a += PGSIZE){
+    pte = walk(pagetable, a, 0);
+    if(pte == 0){
+      // In lazy allocation, this page may never have been mapped.
+      // Instead of panic, just continue.
+      continue;
     }
-    *pte = 0;
+    if((*pte & PTE_V) != 0){
+      pa = PTE2PA(*pte);
+      if(do_free){
+        kfree((void*)pa);
+      }
+      *pte = 0;  // Clear PTE entry
+    }
   }
 }
 
@@ -300,33 +302,38 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
+  uint64 i, pa;
   pte_t *pte;
-  uint64 pa, i;
-  uint flags;
   char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+    pte = walk(old, i, 0);
+    if(pte == 0)
+      continue;   // no PTE → lazily allocated, leave unmapped in child too
+
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      continue;   // PTE exists but not valid → skip
+
+    if((*pte & PTE_U) == 0)
+      continue;   // kernel-only mappings: skip
+
     pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
       goto err;
+
     memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+
+    if(mappages(new, i, PGSIZE, (uint64)mem, PTE_FLAGS(*pte)) != 0){
       kfree(mem);
       goto err;
     }
   }
   return 0;
 
- err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+err:
+  uvmunmap(new, 0, i/PGSIZE, 1);
   return -1;
 }
-
 // mark a PTE invalid for user access.
 // used by exec for the user stack guard page.
 void
@@ -364,6 +371,8 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   }
   return 0;
 }
+
+
 
 // Copy from user to kernel.
 // Copy len bytes to dst from virtual address srcva in a given page table.
@@ -414,7 +423,9 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
       if(*p == '\0'){
         *dst = '\0';
         got_null = 1;
+
         break;
+
       } else {
         *dst = *p;
       }
@@ -423,6 +434,8 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
       p++;
       dst++;
     }
+
+
 
     srcva = va0 + PGSIZE;
   }

@@ -41,14 +41,26 @@ sys_wait(void)
 uint64
 sys_sbrk(void)
 {
-  int addr;
   int n;
+  uint64 addr;
+  struct proc *p = myproc();
 
-  if(argint(0, &n) < 0)
+  if (argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
-  if(growproc(n) < 0)
-    return -1;
+
+  addr = p->sz;
+
+  if (n > 0) {
+    // grow p size 
+    p->sz += n;
+  } else if (n < 0) {
+    // shrink p size 
+    uint64 new_sz = p->sz + n;
+    if (new_sz < 0)
+      return -1;
+    p->sz = uvmdealloc(p->pagetable, p->sz, new_sz);
+  }
+
   return addr;
 }
 
@@ -94,4 +106,11 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+extern uint64 kfreebytes(void);
+
+uint64 sys_freepmem(void)
+{
+  return kfreebytes();
 }
