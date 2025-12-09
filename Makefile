@@ -139,6 +139,7 @@ UPROGS=\
 	$U/_memory-user\
 	$U/_private\
 	$U/_prodcons-sem\
+	$U/_rwtest-sem\
 
 
 

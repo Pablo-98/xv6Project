@@ -121,37 +121,38 @@ sys_freepmem(void)
 uint64
 sys_sem_init(void)
 {
-uint64 uaddr;        // user pointer to sem_t
+  uint64 uaddr;        // user pointer to sem_t
   int pshared;
   int value;
   struct proc *p = myproc();
 
   // args: sem_t *sem, int pshared, unsigned int value
-  if(argaddr(0, &uaddr) < 0)
+  if (argaddr(0, &uaddr) < 0)
     return -1;
-  if(argint(1, &pshared) < 0)
+  if (argint(1, &pshared) < 0)
     return -1;
-  if(argint(2, &value) < 0)
-    return -1;
-
-  // xv6 doesn't support process-shared semaphores (no shared memory),
-  // so only allow pshared == 0.
-  if(pshared != 0)
+  if (argint(2, &value) < 0)
     return -1;
 
+  // xv6 only supports process-local semaphores
+  if (pshared != 0)
+    return -1;
+
+  // get a free semaphore slot in the kernel
   int idx = semalloc();
-  if(idx < 0)
-    return -1;    // no free semaphore slots
+  if (idx < 0)
+    return -1;
 
-  // Initialize kernel semaphore count.
+  // initialize the kernel-side semaphore
   struct semaphore *s = &semtable.sem[idx];
   acquire(&s->lock);
   s->count = value;
+  s->valid = 1;
   release(&s->lock);
 
-  // Write the semaphore "handle" (index) into user memory.
-  if(copyout(p->pagetable, uaddr, (char *)&idx, sizeof(idx)) < 0){
-    // Failed to write back to user; free this semaphore.
+  // write the index back to user space as the sem_t "handle"
+  if (copyout(p->pagetable, uaddr, (char *)&idx, sizeof(idx)) < 0) {
+    // if we couldn't give the handle to the user, free the slot
     semdealloc(idx);
     return -1;
   }
@@ -167,21 +168,21 @@ sys_sem_destroy(void)
   sem_t idx;
 
   // arg: sem_t *sem
-  if(argaddr(0, &uaddr) < 0)
+  if (argaddr(0, &uaddr) < 0)
     return -1;
 
-  // Read the semaphore index from user memory
-  if(copyin(p->pagetable, (char *)&idx, uaddr, sizeof(idx)) < 0)
+  // read sem index from user space
+  if (copyin(p->pagetable, (char *)&idx, uaddr, sizeof(idx)) < 0)
     return -1;
 
-  if(idx < 0 || idx >= NSEM)
+  if (idx < 0 || idx >= NSEM)
     return -1;
 
   struct semaphore *s = &semtable.sem[idx];
 
-  // Mark it invalid in a safe way.
+  // mark it invalid under the global semtable lock
   acquire(&semtable.lock);
-  if(!s->valid){
+  if (!s->valid) {
     release(&semtable.lock);
     return -1;
   }
@@ -189,13 +190,10 @@ sys_sem_destroy(void)
   s->count = 0;
   release(&semtable.lock);
 
-  // Optionally also wake sleepers so they don't wait forever.
+  // wake up any sleepers so they don't wait forever
   acquire(&s->lock);
   wakeup(s);
   release(&s->lock);
-
-  // You can also call semdealloc(idx) instead of doing it inline:
-  // semdealloc(idx);
 
   return 0;
 }
@@ -208,38 +206,38 @@ sys_sem_wait(void)
   sem_t idx;
 
   // arg: sem_t *sem
-  if(argaddr(0, &uaddr) < 0)
+  if (argaddr(0, &uaddr) < 0)
     return -1;
 
-  // Read the semaphore index from user memory
-  if(copyin(p->pagetable, (char *)&idx, uaddr, sizeof(idx)) < 0)
+  // read sem index
+  if (copyin(p->pagetable, (char *)&idx, uaddr, sizeof(idx)) < 0)
     return -1;
 
-  if(idx < 0 || idx >= NSEM)
+  if (idx < 0 || idx >= NSEM)
     return -1;
 
   struct semaphore *s = &semtable.sem[idx];
 
-  // Check validity first
   acquire(&s->lock);
-  if(!s->valid){
+
+  if (!s->valid) {
     release(&s->lock);
     return -1;
   }
 
-  // Classic counting semaphore wait:
-  // sleep while count == 0, then decrement.
-  while(s->count == 0){
-    // sleep releases s->lock while sleeping and reacquires it on wakeup
+  // wait until count > 0
+  while (s->count == 0) {
     sleep(s, &s->lock);
-    // After wakeup, we hold s->lock again, loop re-checks count
-    if(!s->valid){
-      // If it got destroyed while we were asleep, bail.
+    // when we wake up, we hold s->lock again
+
+    if (!s->valid) {
+      // semaphore was destroyed while we slept
       release(&s->lock);
       return -1;
     }
   }
 
+  // consume one "permit"
   s->count--;
   release(&s->lock);
 
@@ -254,27 +252,28 @@ sys_sem_post(void)
   sem_t idx;
 
   // arg: sem_t *sem
-  if(argaddr(0, &uaddr) < 0)
+  if (argaddr(0, &uaddr) < 0)
     return -1;
 
-  // Read the semaphore index from user memory
-  if(copyin(p->pagetable, (char *)&idx, uaddr, sizeof(idx)) < 0)
+  // read sem index
+  if (copyin(p->pagetable, (char *)&idx, uaddr, sizeof(idx)) < 0)
     return -1;
 
-  if(idx < 0 || idx >= NSEM)
+  if (idx < 0 || idx >= NSEM)
     return -1;
 
   struct semaphore *s = &semtable.sem[idx];
 
   acquire(&s->lock);
-  if(!s->valid){
+
+  if (!s->valid) {
     release(&s->lock);
     return -1;
   }
 
-  // Increment the count and wake up any sleepers
+  // give back one "permit" and wake waiters
   s->count++;
-  wakeup(s);   // wake up all procs sleeping on this semaphore
+  wakeup(s);
   release(&s->lock);
 
   return 0;
