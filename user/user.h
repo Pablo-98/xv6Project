@@ -25,6 +25,14 @@ int sleep(int);
 int uptime(void);
 uint64 freepmem (void);
 
+//hw5 pt 1 add sys calls 
+
+int sem_init(sem_t *sem, int pshared, unsigned int value);
+int sem_destroy(sem_t *sem);
+int sem_wait(sem_t *sem);
+int sem_post(sem_t *sem);
+
+
 // ulib.c
 int stat(const char*, struct stat*);
 char* strcpy(char*, const char*);
